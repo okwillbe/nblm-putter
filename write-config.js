@@ -1,4 +1,6 @@
-﻿import { Command } from 'commander'
+﻿const fs = require('fs');
+
+const configContent = import { Command } from 'commander'
 import * as readline from 'readline'
 import { readConfig, writeConfig } from '../config'
 
@@ -6,7 +8,7 @@ function prompt(question: string, defaultVal: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   return new Promise(resolve => {
     rl.on('error', () => { rl.close(); resolve(defaultVal) })
-    rl.question(question + ' (' + defaultVal + '): ', answer => {
+    rl.question(\\ (\): \, answer => {
       rl.close()
       resolve(answer.trim() || defaultVal)
     })
@@ -25,8 +27,8 @@ export function registerConfigCommand(program: Command): void {
       const profile = await prompt('AWS profile', current.aws.profile)
       const smInput = await prompt('Use Secrets Manager for cross-machine sync? (y/n)', current.useSecretsManager ? 'y' : 'n')
       
-      console.log('')
-      console.log('--- Proxy Configuration (Optional) ---')
+      // Proxy configuration
+      console.log('\\n--- Proxy Configuration (Optional) ---')
       const useProxy = await prompt('Use proxy? (y/n)', current.proxy ? 'y' : 'n')
       let proxy = current.proxy
       if (useProxy.toLowerCase() === 'y') {
@@ -51,6 +53,10 @@ export function registerConfigCommand(program: Command): void {
         drive: { clientId, clientSecret },
         proxy,
       })
-      console.log('Configuration saved.')
+      console.log('✓ Configuration saved.')
     })
 }
+;
+
+fs.writeFileSync('C:/github/nblm-putter/packages/cli/src/commands/config.ts', configContent, 'utf8');
+console.log('✓ config.ts written successfully');

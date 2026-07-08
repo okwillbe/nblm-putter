@@ -25,6 +25,8 @@ pnpm install
 pnpm build
 ```
 
+> `pnpm build` で Web UI と CLI の両方がビルドされます。ビルド後、`nblm-putter ui` コマンドで Web UI が正常に起動します。
+
 ### Playwright の Chromium をインストール（初回のみ）
 
 `sync` コマンドはヘッドレス Chromium でファイルをアップロードするため、Playwright のブラウザが必要。
@@ -60,8 +62,15 @@ nblm-putter config init
 | AWS リージョン | Secrets Manager を使う場合のリージョン（デフォルト: `ap-northeast-1`） |
 | AWS プロファイル | `~/.aws/credentials` のプロファイル名（デフォルト: `default`） |
 | Secrets Manager 使用 | `y` で有効化。複数マシンでの設定共有に必要 |
+| プロキシ使用 | `y` で有効化。Playwright のブラウザ通信をプロキシ経由にする |
+| プロキシサーバー | プロキシのアドレス（例: `http://127.0.0.1:7890`） |
+| プロキシユーザー名 | 認証が必要なプロキシの場合に入力（不要なら空欄） |
+| プロキシパスワード | 認証が必要なプロキシの場合に入力（不要なら空欄） |
 
 設定ファイルは `~/.nblm-putter/config.json` に保存される。
+
+> **プロキシについて**
+> プロキシは `auth` コマンド（Chrome 起動）と `sync` コマンド（ヘッドレス Chromium）の両方に適用される。認証なしのプロキシの場合、ユーザー名とパスワードは空欄のまま Enter でスキップできる。
 
 > **Secrets Manager を使わない場合**  
 > `n` を選ぶとローカルモードで動作する。ツール起動時に警告が表示されるが、すべての機能は正常に使える（マシン間の設定共有のみ無効）。

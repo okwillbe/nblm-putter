@@ -1,0 +1,26 @@
+﻿*** Begin Patch
+*** Update File: packages/cli/src/config.ts
+export interface Config {
+  useSecretsManager: boolean
+  aws: {
+    region: string
+    profile: string
+  }
+  drive: {
+    clientId: string
+    clientSecret: string
+  }
++  proxy?: {
++    server: string
++    username?: string
++    password?: string
++  }
+}
+
+const DEFAULT_CONFIG: Config = {
+  useSecretsManager: false,
+  aws: { region: 'ap-northeast-1', profile: 'default' },
+  drive: { clientId: '', clientSecret: '' },
++  proxy: undefined,
+}
+*** End Patch

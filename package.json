@@ -6,5 +6,7 @@
     "test": "pnpm --filter nblm-putter test",
     "dev:ui": "pnpm --filter ui dev"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -1,5 +1,6 @@
-import { chromium, Browser, BrowserContext } from 'playwright'
+﻿import { chromium, Browser, BrowserContext } from 'playwright'
 import { loadSession } from '../storage/index'
+import { readConfig } from '../config'
 
 export interface BrowserHandle {
   browser: Browser
@@ -9,11 +10,16 @@ export interface BrowserHandle {
 const HEADLESS_ARGS = ['--disable-blink-features=AutomationControlled']
 
 export async function launchHeaded(): Promise<BrowserHandle> {
-  // Use system Chrome to avoid Google's bot detection on Playwright's bundled Chromium
+  const config = readConfig()
   const browser = await chromium.launch({
     headless: false,
     channel: 'chrome',
     args: ['--disable-blink-features=AutomationControlled'],
+    proxy: config.proxy ? {
+      server: config.proxy.server,
+      username: config.proxy.username,
+      password: config.proxy.password,
+    } : undefined,
   })
   const context = await browser.newContext()
   return { browser, context }
@@ -22,7 +28,16 @@ export async function launchHeaded(): Promise<BrowserHandle> {
 // Launch a headless browser without creating a context.
 // Use createHeadlessContext() to create per-worker contexts.
 export async function launchHeadlessBrowser(): Promise<Browser> {
-  return chromium.launch({ headless: true, args: HEADLESS_ARGS })
+  const config = readConfig()
+  return chromium.launch({ 
+    headless: true, 
+    args: HEADLESS_ARGS,
+    proxy: config.proxy ? {
+      server: config.proxy.server,
+      username: config.proxy.username,
+      password: config.proxy.password,
+    } : undefined,
+  })
 }
 
 // Create a context from an existing browser with the saved session.

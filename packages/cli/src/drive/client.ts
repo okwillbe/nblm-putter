@@ -4,6 +4,32 @@ import { basename } from 'path'
 import { readConfig } from '../config'
 import { loadDriveToken, saveDriveToken, isTokenExpired, DriveToken } from './token'
 
+/**
+ * 设置代理环境变量，让 googleapis 底层的 HTTP 请求走代理
+ */
+function setupProxyEnv(): void {
+  const { proxy } = readConfig()
+  if (!proxy?.server) return
+
+  // 解析代理服务器地址
+  let proxyUrl = proxy.server
+  if (!proxyUrl.startsWith('http://') && !proxyUrl.startsWith('https://')) {
+    proxyUrl = `http://${proxyUrl}`
+  }
+
+  // 如果有认证信息，添加到 URL 中
+  if (proxy.username && proxy.password) {
+    const url = new URL(proxyUrl)
+    url.username = proxy.username
+    url.password = proxy.password
+    proxyUrl = url.toString()
+  }
+
+  // 设置环境变量，Node.js 的 HTTPS 请求会自动使用
+  process.env.HTTPS_PROXY = proxyUrl
+  process.env.HTTP_PROXY = proxyUrl
+}
+
 function getOAuth2Client() {
   const { drive } = readConfig()
   if (!drive.clientId || !drive.clientSecret) {
@@ -36,6 +62,9 @@ async function refreshIfNeeded(): Promise<void> {
     saveDriveToken({ ...token, ...credentials } as DriveToken)
   }
 }
+
+// 初始化时设置代理
+setupProxyEnv()
 
 export async function getOrCreateFolder(parentId: string | null, name: string): Promise<string> {
   await refreshIfNeeded()

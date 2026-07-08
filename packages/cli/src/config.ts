@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 
@@ -12,12 +12,18 @@ export interface Config {
     clientId: string
     clientSecret: string
   }
+  proxy?: {
+    server: string
+    username?: string
+    password?: string
+  }
 }
 
 const DEFAULT_CONFIG: Config = {
   useSecretsManager: false,
   aws: { region: 'ap-northeast-1', profile: 'default' },
   drive: { clientId: '', clientSecret: '' },
+  proxy: undefined,
 }
 
 export function getConfigDir(): string {
@@ -30,13 +36,14 @@ function getConfigPath(): string {
 
 export function readConfig(): Config {
   const path = getConfigPath()
-  if (!existsSync(path)) return { ...DEFAULT_CONFIG, aws: { ...DEFAULT_CONFIG.aws }, drive: { ...DEFAULT_CONFIG.drive } }
+  if (!existsSync(path)) return { ...DEFAULT_CONFIG, aws: { ...DEFAULT_CONFIG.aws }, drive: { ...DEFAULT_CONFIG.drive }, proxy: DEFAULT_CONFIG.proxy }
   const saved = JSON.parse(readFileSync(path, 'utf8')) as Partial<Config>
   return {
     ...DEFAULT_CONFIG,
     ...saved,
     aws: { ...DEFAULT_CONFIG.aws, ...saved.aws },
     drive: { ...DEFAULT_CONFIG.drive, ...saved.drive },
+    proxy: saved.proxy ? { ...DEFAULT_CONFIG.proxy, ...saved.proxy } : DEFAULT_CONFIG.proxy,
   }
 }
 

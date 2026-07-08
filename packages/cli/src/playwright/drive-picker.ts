@@ -1,5 +1,7 @@
 import { Page } from 'playwright'
 import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 const PICKER_FRAME_SELECTORS = [
   'iframe[src*="drive.google.com"]',
@@ -7,28 +9,56 @@ const PICKER_FRAME_SELECTORS = [
   'iframe[src*="accounts.google.com"][src*="picker"]',
 ]
 
+function getDebugDir(): string {
+  const tmpDir = process.env.TMPDIR || process.env.TEMP || process.env.TMP
+  if (tmpDir) return tmpDir
+  // Windows 默认临时目录
+  if (process.platform === 'win32') {
+    return path.join(os.homedir(), 'AppData', 'Local', 'Temp')
+  }
+  return '/tmp'
+}
+
 // filesToAdd: 新規アップロードしたファイル名のリスト。指定時はそのファイルのみ選択する。
 export async function addSourcesFromDrive(
   page: Page,
   notebookId: string,
   filesToAdd?: string[],
 ): Promise<void> {
-  const debugDir = process.env.TMPDIR ?? '/tmp'
+  const debugDir = getDebugDir()
 
-  // 1. 「ソースを追加」ボタンをクリック
-  await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"]')
+  // ページが完全に読み込まれているか確認
+  const pageUrl = page.url()
+  console.log(`  [debug] Current page URL: ${pageUrl}`)
+
+  // スクリーンショットを撮って現在の状態を確認
+  await page.screenshot({ path: `${debugDir}/nblm-phase2-start.png`, fullPage: true }).catch(() => {})
+
+  // ?addSource=true 只是 URL 参数，实际上对话框并不会自动打开
+  // 必须点击 "添加来源" 按钮来打开菜单
+  console.log(`  [debug] Clicking "添加来源" button to open menu...`)
+
+  // 1. 「ソースを追加」ボタンをクリック（タイムアウトを 60秒に延長）
+  //    日本語: ソースを追加 / 英語: Add source / 中文: 添加来源
+  await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"], [aria-label="添加来源"]')
     .first()
-    .click({ force: true, timeout: 15000 })
+    .click({ force: true, timeout: 60000 })
+
+  // 等待菜单弹出
+  await page.waitForTimeout(1000)
+  await page.screenshot({ path: `${debugDir}/nblm-after-click-add-source.png`, fullPage: true }).catch(() => {})
 
   // 2. 「ドライブ」ボタンが出現するまで待ってクリック
   //    getByRole() / getByText() はシャドウ DOM を透過する。
-  //    CSS の :has-text() は透過しない。
-  //    旧コードの waitForSelector ループが偶然 24秒以上待っていたのを
-  //    「ドライブ」ボタン自体の出現待ちに一本化する。
+  //    日本語: ドライブ / 英語: Drive / 中文: 云端硬盘
   const driveButton = page.getByRole('button', { name: 'ドライブ', exact: true })
     .or(page.getByRole('button', { name: 'Drive', exact: true }))
+    .or(page.getByRole('button', { name: '云端硬盘', exact: true }))
     .or(page.getByRole('menuitem', { name: 'ドライブ' }))
     .or(page.getByRole('menuitem', { name: 'Drive' }))
+    .or(page.getByRole('menuitem', { name: '云端硬盘' }))
+    // 追加: テキストで探す（Google ドライブ / Google Drive / Google 云端硬盘）
+    .or(page.locator('button:has-text("Google ドライブ"), button:has-text("Google Drive"), button:has-text("Google 云端硬盘")'))
 
   let driveClicked = false
 
@@ -44,8 +74,8 @@ export async function addSourcesFromDrive(
   // Strategy B: JS でシャドウ DOM を再帰探索してクリック
   if (!driveClicked) {
     driveClicked = await page.evaluate(() => {
-      const TARGET = ['ドライブ', 'Drive', 'Google ドライブ', 'Google Drive']
-      const EXCLUDE = ['ソースを追加', 'Add source']
+      const TARGET = ['ドライブ', 'Drive', 'Google ドライブ', 'Google Drive', '云端硬盘', 'Google 云端硬盘']
+      const EXCLUDE = ['ソースを追加', 'Add source', '添加来源']
 
       function tryClick(root: Element | ShadowRoot): boolean {
         for (const el of Array.from(root.querySelectorAll(
@@ -78,6 +108,8 @@ export async function addSourcesFromDrive(
     )
   }
 
+  console.log(`  [debug] Drive button clicked, waiting for picker iframe...`)
+
   // 3. Drive ピッカー iframe を待つ
   let pickerFrame = null
   let pickerFrameSel = ''
@@ -86,6 +118,7 @@ export async function addSourcesFromDrive(
       await page.waitForSelector(sel, { timeout: 12000 })
       pickerFrame = page.frameLocator(sel)
       pickerFrameSel = sel
+      console.log(`  [debug] Picker iframe found: ${sel}`)
       break
     } catch { /* 次を試す */ }
   }
@@ -105,17 +138,20 @@ export async function addSourcesFromDrive(
 
   // 4. 「マイドライブ」タブをクリック
   //    ピッカーは「最近使用したアイテム」タブで開くので明示的に切り替える
-  //    タブは role="tab"、テキスト「マイドライブ」または id="1"
+  //    日本語: マイドライブ / 英語: My Drive / 中文: 我的云端硬盘
   const myDriveTab = pickerFrame.getByRole('tab', { name: 'マイドライブ' })
     .or(pickerFrame.getByRole('tab', { name: 'My Drive' }))
+    .or(pickerFrame.getByRole('tab', { name: '我的云端硬盘' }))
     .or(pickerFrame.locator('[role="tab"][id="1"]'))
   const myDriveTabVisible = await myDriveTab.first().isVisible({ timeout: 3000 }).catch(() => false)
   if (myDriveTabVisible) {
+    console.log(`  [debug] Clicking My Drive tab...`)
     await myDriveTab.first().click({ timeout: 5000 })
     await page.waitForTimeout(1500)
   }
 
   // 5. nblm-putter フォルダを開く
+  console.log(`  [debug] Looking for nblm-putter folder...`)
   //    ファイルアイテムは aria-label="<名前> <種別> 選択されていません" の形式
   const nblmFolder = pickerFrame.locator('[aria-label*="nblm-putter"]').first()
   await nblmFolder.waitFor({ state: 'visible', timeout: 10000 })
@@ -123,10 +159,11 @@ export async function addSourcesFromDrive(
   await page.waitForTimeout(1200)
 
   // 6. ノートブックサブフォルダを開く
+  console.log(`  [debug] Looking for notebook folder: ${notebookId}...`)
   const notebookFolder = pickerFrame.locator(`[aria-label*="${notebookId}"]`).first()
   await notebookFolder.waitFor({ state: 'visible', timeout: 10000 })
   await notebookFolder.dblclick({ timeout: 5000 })
-  await page.waitForTimeout(1200)
+  await page.waitForTimeout(2000)  // フォルダ内容が読み込まれるまで待つ
 
   // デバッグ用スクリーンショット＆HTML ダンプ（フォルダ内容確認）
   await page.screenshot({ path: `${debugDir}/nblm-picker-folder.png`, fullPage: true }).catch(() => {})
@@ -137,12 +174,26 @@ export async function addSourcesFromDrive(
   fs.writeFileSync(`${debugDir}/nblm-picker-folder.html`, pickerHtmlAfter)
 
   // 7. ファイルを選択
+  //    中文の選択状態: "未选择" (未選択)
+  const unselectedLabel = '[aria-label*="選択されていません"], [aria-label*="not selected"], [aria-label*="未选择"]'
+
   if (filesToAdd && filesToAdd.length > 0) {
+    console.log(`  [debug] Files to add: ${filesToAdd.join(', ')}`)
+
+    // ピッカー内のファイル一覧を取得してデバッグ出力
+    const allItems = await pickerFrame.locator('[aria-label]').evaluateAll(el =>
+      el.map(e => e.getAttribute('aria-label') || '')
+    ).catch(() => [])
+    console.log(`  [debug] Picker items found: ${allItems.length}`)
+    allItems.slice(0, 20).forEach(label => console.log(`    - ${label}`))
+
     // 新規アップロード分のみ Ctrl+クリックで個別選択
     let firstSelected = false
     for (const name of filesToAdd) {
+      console.log(`  [debug] Looking for file: ${name}`)
       const item = pickerFrame.locator(`[aria-label*="${name}"]`).first()
-      const visible = await item.isVisible({ timeout: 2000 }).catch(() => false)
+      const visible = await item.isVisible({ timeout: 3000 }).catch(() => false)
+      console.log(`  [debug] File "${name}" visible: ${visible}`)
       if (!visible) continue
       if (!firstSelected) {
         await item.click({ timeout: 5000 })
@@ -152,11 +203,17 @@ export async function addSourcesFromDrive(
       }
     }
     if (!firstSelected) {
-      throw new Error('新規アップロードファイルがピッカー内に見つかりませんでした。')
+      await page.screenshot({ path: `${debugDir}/nblm-picker-files-not-found.png`, fullPage: true }).catch(() => {})
+      throw new Error(
+        `新規アップロードファイルがピッカー内に見つかりませんでした。\n` +
+        `  探していたファイル: ${filesToAdd.join(', ')}\n` +
+        `  ピッカー内のアイテム: ${allItems.slice(0, 20).join(', ')}\n` +
+        `  スクリーンショット: ${debugDir}/nblm-picker-files-not-found.png`
+      )
     }
   } else {
     // filesToAdd 未指定時はフォルダ内全件を Shift+クリックで選択
-    const fileItems = pickerFrame.locator('[aria-label*="選択されていません"]')
+    const fileItems = pickerFrame.locator(unselectedLabel)
     const fileCount = await fileItems.count().catch(() => 0)
     if (fileCount > 0) {
       await fileItems.first().click({ timeout: 5000 })
@@ -171,12 +228,12 @@ export async function addSourcesFromDrive(
   await page.screenshot({ path: `${debugDir}/nblm-picker-selected.png`, fullPage: true }).catch(() => {})
 
   // 8. 「挿入」ボタンをクリック（ファイル選択後に右下に出現）
-  //    実 DOM 確認: 日本語 UI は「挿入」、英語 UI は「Insert」
+  //    日本語: 挿入 / 英語: Insert / 中文: 插入
   const insertBtn = pickerFrame.getByRole('button', { name: '挿入' })
     .or(pickerFrame.getByRole('button', { name: 'Insert' }))
+    .or(pickerFrame.getByRole('button', { name: '插入' }))
     .or(pickerFrame.locator('[jsname="d1dBrd"]'))
-    .or(pickerFrame.locator('[aria-label="挿入"]'))
-    .or(pickerFrame.locator('[aria-label="Insert"]'))
+    .or(pickerFrame.locator('[aria-label="挿入"], [aria-label="Insert"], [aria-label="插入"]'))
   await insertBtn.first().waitFor({ state: 'visible', timeout: 8000 })
   await insertBtn.first().click({ timeout: 5000 })
 
