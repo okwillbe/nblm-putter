@@ -8,25 +8,30 @@ const PICKER_FRAME_SELECTORS = [
   'iframe[src*="accounts.google.com"][src*="picker"]',
 ]
 
-// ピッカー iframe 内で「最もスクロール量の大きいスクロール可能要素」を下方向へ約8割ぶんスクロールする。
-// 仮想化されたグリッドで未描画のアイテムを読み込ませるために使う。
-async function scrollPickerGrid(page: Page): Promise<void> {
+// ピッカー iframe 内で「最もスクロール量の大きいスクロール可能要素」をスクロールする。
+// direction='down' で約8割ぶん下へ、'top' で先頭へ戻す。仮想化グリッドの未描画アイテム読み込み用。
+// 戻り値: 実際にスクロール位置が動いたか（false = 最下端に到達済み等で動かなかった）。
+async function scrollPickerGrid(page: Page, direction: 'down' | 'top' = 'down'): Promise<boolean> {
   const frame = page.frames().find(
     f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com')
   )
-  if (!frame) return
-  await frame.evaluate(() => {
+  if (!frame) return false
+  const moved = await frame.evaluate((dir) => {
     const scrollers = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(el => {
       const style = getComputedStyle(el)
       return el.scrollHeight > el.clientHeight + 50 &&
         (style.overflowY === 'auto' || style.overflowY === 'scroll')
     })
     const target = scrollers.sort((a, b) => b.scrollHeight - a.scrollHeight)[0]
-    if (target) {
-      target.scrollTop = Math.min(target.scrollTop + target.clientHeight * 0.8, target.scrollHeight)
-    }
-  }).catch(() => {})
+    if (!target) return false
+    const before = target.scrollTop
+    target.scrollTop = dir === 'top'
+      ? 0
+      : Math.min(target.scrollTop + target.clientHeight * 0.8, target.scrollHeight)
+    return target.scrollTop !== before
+  }, direction).catch(() => false)
   await page.waitForTimeout(600)
+  return moved
 }
 
 // filesToAdd のうちピッカー内に aria-label でマッチする件数を数える。
@@ -51,6 +56,15 @@ async function waitForFilesPresent(
   let present = await countPresent(pickerFrame, names)
   while (present < names.length && Date.now() - t0 < maxWaitMs) {
     await page.waitForTimeout(4000)
+    // 再クエリするにはフォルダ内にいる状態から一度「マイドライブ」ルートへ戻る必要がある
+    // （フォルダ内では nblm-putter タイルが見えず再入場できないため）。
+    const myDriveTab = pickerFrame.getByRole('tab', { name: 'マイドライブ' })
+      .or(pickerFrame.getByRole('tab', { name: 'My Drive' }))
+      .or(pickerFrame.locator('[role="tab"][id="1"]'))
+    if (await myDriveTab.first().count() > 0) {
+      await myDriveTab.first().click({ timeout: 5000 }).catch(() => {})
+      await page.waitForTimeout(1000)
+    }
     // フォルダを再入場して再クエリ（nblm-putter → notebookId）
     const nblmFolder = pickerFrame.locator('[aria-label*="nblm-putter"]').first()
     if (await nblmFolder.count() > 0) {
@@ -201,28 +215,32 @@ export async function addSourcesFromDrive(
     // まず対象ファイルが Drive 反映されるのを待つ（アップロード直後は未出現のことがある）
     await waitForFilesPresent(page, pickerFrame, notebookId, filesToAdd)
 
-    const MAX_SCROLLS = 20
-    for (const name of filesToAdd) {
-      const item = pickerFrame.locator(`[aria-label*="${name}"]`).first()
+    // グリッドを先頭から最下端まで一方向にスイープし、各スクロール位置で
+    // 「未選択の対象すべて」を再スキャンして見つかった分をクリックする。
+    // ファイルの並び順とスクロール位置に依存せず全件を拾える（上方に取り残さない）。
+    const remaining = new Set(filesToAdd)
+    const MAX_SCROLLS = 40
+    await scrollPickerGrid(page, 'top')
 
-      // DOM に出るまでグリッドを段階スクロール（仮想化対策）
-      let found = await item.count() > 0
-      for (let s = 0; s < MAX_SCROLLS && !found; s++) {
-        await scrollPickerGrid(page)
-        found = await item.count() > 0
+    for (let s = 0; s <= MAX_SCROLLS && remaining.size > 0; s++) {
+      for (const name of [...remaining]) {
+        const item = pickerFrame.locator(`[aria-label*="${name}"]`).first()
+        if (await item.count() === 0) continue
+        // 先頭は通常クリック、以降は Ctrl+ で追加選択
+        await item.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {})
+        const modifiers: ('Control')[] = result.added.length === 0 ? [] : ['Control']
+        const clicked = await item.click({ modifiers, timeout: 5000 }).then(() => true).catch(() => false)
+        if (clicked) {
+          result.added.push(name)
+          remaining.delete(name)
+        }
       }
-      if (!found) {
-        result.missing.push(name)
-        continue
-      }
-
-      // ビューポート内へ入れてからクリック（先頭は通常、以降は Ctrl+ で追加選択）
-      await item.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {})
-      const modifiers: ('Control')[] = result.added.length === 0 ? [] : ['Control']
-      const clicked = await item.click({ modifiers, timeout: 5000 }).then(() => true).catch(() => false)
-      if (clicked) result.added.push(name)
-      else result.missing.push(name)
+      if (remaining.size === 0) break
+      // まだ残っていれば下へスクロールして続きを読み込む。最下端で動かなければ終了。
+      const moved = await scrollPickerGrid(page, 'down')
+      if (!moved) break
     }
+    result.missing.push(...remaining)
 
     if (result.added.length === 0) {
       throw new Error('新規アップロードファイルがピッカー内に見つかりませんでした（反映遅延またはDOM未検出）。')
