@@ -149,9 +149,23 @@ export function registerSyncCommand(program: Command): void {
         process.stdout.write(
           `\n  Adding ${c.cyan}${sourcesToAdd.length}${c.reset} new source(s) via Drive picker...\n\n`
         )
-        await addSourcesFromDrive(page, opts.notebook, sourcesToAdd)
+        const addResult = await addSourcesFromDrive(page, opts.notebook, sourcesToAdd)
+        addedCount = addResult.added.length
+        const notAdded = addResult.missing
         await page.close()
         await ctx.close().catch(() => {})
+
+        if (notAdded.length > 0) {
+          process.stdout.write(
+            `\n  ${c.yellow}⚠${c.reset}  ${notAdded.length} 件はピッカーに出現せず追加できませんでした:\n`
+          )
+          for (const name of notAdded) {
+            process.stdout.write(`     ${c.dim}- ${name}${c.reset}\n`)
+          }
+          process.stdout.write(
+            `  ${c.dim}Drive 反映待ちの可能性があります。--force-overwrite を付けて再実行すると再追加を試みます。${c.reset}\n`
+          )
+        }
       } catch (err) {
         process.stdout.write(`  ${c.red}✗${c.reset}  Drive picker failed: ${err instanceof Error ? err.message : err}\n`)
         updateJob(jobId, { status: 'failed' })
