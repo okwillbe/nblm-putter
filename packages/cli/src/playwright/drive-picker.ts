@@ -34,11 +34,24 @@ async function scrollPickerGrid(page: Page, direction: 'down' | 'top' = 'down'):
   return moved
 }
 
-// filesToAdd のうちピッカー内に aria-label でマッチする件数を数える。
+// CSS 属性セレクタ値用に " と \ をエスケープする。
+function escapeAttr(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+// 対象ファイル名に対応するピッカー内タイルのロケータ。
+// 部分一致（[aria-label*=...]）だと別ファイル名の部分文字列に誤マッチするため、
+// 「完全一致」または「<name> <種別>」形式（name の直後が空白）に限定する。
+function fileTile(pickerFrame: FrameLocator, name: string) {
+  const n = escapeAttr(name)
+  return pickerFrame.locator(`[aria-label="${n}"], [aria-label^="${n} "]`).first()
+}
+
+// filesToAdd のうちピッカー内にマッチする件数を数える。
 async function countPresent(pickerFrame: FrameLocator, names: string[]): Promise<number> {
   let n = 0
   for (const name of names) {
-    if (await pickerFrame.locator(`[aria-label*="${name}"]`).count() > 0) n++
+    if (await fileTile(pickerFrame, name).count() > 0) n++
   }
   return n
 }
@@ -224,7 +237,7 @@ export async function addSourcesFromDrive(
 
     for (let s = 0; s <= MAX_SCROLLS && remaining.size > 0; s++) {
       for (const name of [...remaining]) {
-        const item = pickerFrame.locator(`[aria-label*="${name}"]`).first()
+        const item = fileTile(pickerFrame, name)
         if (await item.count() === 0) continue
         // 先頭は通常クリック、以降は Ctrl+ で追加選択
         await item.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {})
@@ -257,6 +270,31 @@ export async function addSourcesFromDrive(
     }
   }
   await page.waitForTimeout(800)
+
+  // 挿入前にピッカーの選択数（「N 件選択しました」）を読み取り、想定選択数と照合する。
+  // click() が例外を投げなくても実際には選択できていない場合の検出用バックストップ。
+  if (filesToAdd && filesToAdd.length > 0) {
+    const frame = page.frames().find(
+      f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com')
+    )
+    const picked = frame
+      ? await frame.evaluate(() => {
+          const m = document.body.innerText.match(/(\d+)\s*件選択/)
+          return m ? Number(m[1]) : null
+        }).catch(() => null)
+      : null
+    if (picked !== null && picked !== result.added.length) {
+      // 照合できたが不一致 → added の一部が実際には未選択の可能性。added を実選択数に合わせて縮め、
+      // 差分を missing に移す（どのファイルかは特定できないため、確実に追加された数だけを added とする）。
+      console.warn(
+        `⚠ ピッカーの選択数(${picked})が想定(${result.added.length})と一致しません。実選択数を採用します。`
+      )
+      while (result.added.length > picked) {
+        const dropped = result.added.pop()
+        if (dropped) result.missing.push(dropped)
+      }
+    }
+  }
 
   // 選択後のスクリーンショット
   await page.screenshot({ path: `${debugDir}/nblm-picker-selected.png`, fullPage: true }).catch(() => {})
