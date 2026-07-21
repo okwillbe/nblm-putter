@@ -149,6 +149,10 @@ nblm-putter sync ~/Documents/research --notebook abc123 --force-overwrite
 
 `--force-overwrite` を指定すると既存ファイルを上書きアップロードし、NotebookLM にも再追加する。
 
+また、NotebookLM 側に既に**同名のソース**が存在するファイルは、Phase 2（NotebookLM への追加）でスキップされ、ターミナルに `SKIP (already a source)` と表示される。これにより `--force-overwrite` 使用時や過去の sync 実行の蓄積による同名ソースの重複を防ぐ。
+
+なお、既存ソース一覧の取得に失敗した場合は、重複を生む恐れがあるため sync を中断する（Drive へのアップロードは完了しているため、再実行すると Phase 2 のみリトライされる）。
+
 ### sync の注意事項
 
 - **Phase 1** でローカルファイルを Google Drive にアップロードし、**Phase 2** で NotebookLM の Drive ピッカーを使って新規ファイルのみ追加する。
