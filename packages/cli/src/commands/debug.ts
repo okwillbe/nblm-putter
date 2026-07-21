@@ -137,6 +137,48 @@ export function registerDebugCommand(program: Command): void {
         } else {
           fileInputs.forEach((fi, i) => console.log(`  [${i}] accept="${fi.accept}" id="${fi.id}"`))
         }
+
+        // Phase 3: dump existing source list in the left panel
+        await page.keyboard.press('Escape').catch(() => {})
+        await page.waitForTimeout(1000)
+
+        const sources = await page.evaluate(() => {
+          // 幅広い候補セレクタでソースらしき要素を収集し、
+          // aria-label / text / class / role を出力する
+          const candidates = Array.from(
+            document.querySelectorAll(
+              [
+                '[role="listitem"]',
+                'mat-list-item',
+                '[class*="source"]',
+                '[data-testid*="source"]',
+                '[aria-label*="ソース"]',
+              ].join(', ')
+            )
+          )
+          return candidates.map(el => ({
+            tag: el.tagName,
+            role: el.getAttribute('role') ?? '',
+            aria: el.getAttribute('aria-label') ?? '',
+            testid: el.getAttribute('data-testid') ?? '',
+            cls: el.className?.toString().slice(0, 80) ?? '',
+            text: el.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? '',
+          }))
+        })
+        console.log('\n=== SOURCE LIST CANDIDATES ===')
+        if (sources.length === 0) {
+          console.log('  (none found)')
+        } else {
+          sources.slice(0, 40).forEach((s, i) =>
+            console.log(
+              `  [${i}] <${s.tag}> role="${s.role}" aria="${s.aria}" testid="${s.testid}" cls="${s.cls}" text="${s.text}"`
+            )
+          )
+        }
+
+        const shot3 = join(getConfigDir(), 'debug-3-sources.png')
+        await page.screenshot({ path: shot3, fullPage: true })
+        console.log(`Screenshot 3 (sources): ${shot3}`)
       } catch (err) {
         console.error('Error:', err instanceof Error ? err.message : err)
       } finally {
