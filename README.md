@@ -155,6 +155,10 @@ nblm-putter sync ~/Documents/research --notebook abc123 --force-overwrite
 
 ### sync の注意事項
 
+**Phase 2 での動作と未追加ファイルへの対応**
+
+Phase 2 では、新規ファイルが多い場合でも Drive ピッカーをスクロールして全件を選択・追加する。アップロード直後で Drive への反映が間に合わないファイルは追加されず、ターミナルに「⚠ 追加できませんでした」として一覧表示される。その場合は `--force-overwrite` を付けて再実行すると再追加を試みる。
+
 - **Phase 1** でローカルファイルを Google Drive にアップロードし、**Phase 2** で NotebookLM の Drive ピッカーを使って新規ファイルのみ追加する。
 - Drive 側の認証トークンが期限切れの場合は `nblm-putter auth` を再実行する。
 - Drive ピッカーの UI が変更された場合、ピッカー操作が失敗することがある。その際は `/tmp/nblm-drive-picker-debug.png` を確認する。
