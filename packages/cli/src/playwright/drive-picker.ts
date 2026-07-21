@@ -1,4 +1,5 @@
 import { Page } from 'playwright'
+import type { FrameLocator } from 'playwright'
 import * as fs from 'fs'
 
 const PICKER_FRAME_SELECTORS = [
@@ -7,12 +8,70 @@ const PICKER_FRAME_SELECTORS = [
   'iframe[src*="accounts.google.com"][src*="picker"]',
 ]
 
+// ピッカー iframe 内で「最もスクロール量の大きいスクロール可能要素」を下方向へ約8割ぶんスクロールする。
+// 仮想化されたグリッドで未描画のアイテムを読み込ませるために使う。
+async function scrollPickerGrid(page: Page): Promise<void> {
+  const frame = page.frames().find(
+    f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com')
+  )
+  if (!frame) return
+  await frame.evaluate(() => {
+    const scrollers = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(el => {
+      const style = getComputedStyle(el)
+      return el.scrollHeight > el.clientHeight + 50 &&
+        (style.overflowY === 'auto' || style.overflowY === 'scroll')
+    })
+    const target = scrollers.sort((a, b) => b.scrollHeight - a.scrollHeight)[0]
+    if (target) {
+      target.scrollTop = Math.min(target.scrollTop + target.clientHeight * 0.8, target.scrollHeight)
+    }
+  }).catch(() => {})
+  await page.waitForTimeout(600)
+}
+
+// filesToAdd のうちピッカー内に aria-label でマッチする件数を数える。
+async function countPresent(pickerFrame: FrameLocator, names: string[]): Promise<number> {
+  let n = 0
+  for (const name of names) {
+    if (await pickerFrame.locator(`[aria-label*="${name}"]`).count() > 0) n++
+  }
+  return n
+}
+
+// filesToAdd 全件がピッカーに出現するまで、フォルダを再入場して最大 maxWaitMs 待つ。
+// 出現数が増えなくなった／全件揃った／タイムアウトで打ち切る。
+async function waitForFilesPresent(
+  page: Page,
+  pickerFrame: FrameLocator,
+  notebookId: string,
+  names: string[],
+  maxWaitMs = 60000,
+): Promise<void> {
+  const t0 = Date.now()
+  let present = await countPresent(pickerFrame, names)
+  while (present < names.length && Date.now() - t0 < maxWaitMs) {
+    await page.waitForTimeout(4000)
+    // フォルダを再入場して再クエリ（nblm-putter → notebookId）
+    const nblmFolder = pickerFrame.locator('[aria-label*="nblm-putter"]').first()
+    if (await nblmFolder.count() > 0) {
+      await nblmFolder.dblclick({ timeout: 5000 }).catch(() => {})
+      await page.waitForTimeout(1000)
+      const notebookFolder = pickerFrame.locator(`[aria-label*="${notebookId}"]`).first()
+      if (await notebookFolder.count() > 0) {
+        await notebookFolder.dblclick({ timeout: 5000 }).catch(() => {})
+        await page.waitForTimeout(1200)
+      }
+    }
+    present = await countPresent(pickerFrame, names)
+  }
+}
+
 // filesToAdd: 新規アップロードしたファイル名のリスト。指定時はそのファイルのみ選択する。
 export async function addSourcesFromDrive(
   page: Page,
   notebookId: string,
   filesToAdd?: string[],
-): Promise<void> {
+): Promise<{ added: string[]; missing: string[] }> {
   const debugDir = process.env.TMPDIR ?? '/tmp'
 
   // 1. 「ソースを追加」ボタンをクリック
@@ -137,22 +196,36 @@ export async function addSourcesFromDrive(
   fs.writeFileSync(`${debugDir}/nblm-picker-folder.html`, pickerHtmlAfter)
 
   // 7. ファイルを選択
+  const result: { added: string[]; missing: string[] } = { added: [], missing: [] }
   if (filesToAdd && filesToAdd.length > 0) {
-    // 新規アップロード分のみ Ctrl+クリックで個別選択
-    let firstSelected = false
+    // まず対象ファイルが Drive 反映されるのを待つ（アップロード直後は未出現のことがある）
+    await waitForFilesPresent(page, pickerFrame, notebookId, filesToAdd)
+
+    const MAX_SCROLLS = 20
     for (const name of filesToAdd) {
       const item = pickerFrame.locator(`[aria-label*="${name}"]`).first()
-      const visible = await item.isVisible({ timeout: 2000 }).catch(() => false)
-      if (!visible) continue
-      if (!firstSelected) {
-        await item.click({ timeout: 5000 })
-        firstSelected = true
-      } else {
-        await item.click({ modifiers: ['Control'], timeout: 5000 })
+
+      // DOM に出るまでグリッドを段階スクロール（仮想化対策）
+      let found = await item.count() > 0
+      for (let s = 0; s < MAX_SCROLLS && !found; s++) {
+        await scrollPickerGrid(page)
+        found = await item.count() > 0
       }
+      if (!found) {
+        result.missing.push(name)
+        continue
+      }
+
+      // ビューポート内へ入れてからクリック（先頭は通常、以降は Ctrl+ で追加選択）
+      await item.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {})
+      const modifiers: ('Control')[] = result.added.length === 0 ? [] : ['Control']
+      const clicked = await item.click({ modifiers, timeout: 5000 }).then(() => true).catch(() => false)
+      if (clicked) result.added.push(name)
+      else result.missing.push(name)
     }
-    if (!firstSelected) {
-      throw new Error('新規アップロードファイルがピッカー内に見つかりませんでした。')
+
+    if (result.added.length === 0) {
+      throw new Error('新規アップロードファイルがピッカー内に見つかりませんでした（反映遅延またはDOM未検出）。')
     }
   } else {
     // filesToAdd 未指定時はフォルダ内全件を Shift+クリックで選択
@@ -182,4 +255,6 @@ export async function addSourcesFromDrive(
 
   // 9. ダイアログが閉じるのを待つ
   await page.waitForTimeout(2000)
+
+  return result
 }
