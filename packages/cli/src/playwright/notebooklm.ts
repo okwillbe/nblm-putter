@@ -334,3 +334,39 @@ export async function registerFile(
     await page.close()
   }
 }
+
+// PROVISIONAL: this selector has NOT been verified against live NotebookLM DOM
+// (session was expired at implementation time). It mirrors the same broad candidate
+// list the `debug` command dumps under "SOURCE LIST CANDIDATES" (see src/commands/debug.ts)
+// so behavior stays consistent with that investigation tool. Before relying on this in
+// production, run `pnpm dev -- debug --notebook <id>` against a notebook with existing
+// sources and confirm these candidates actually match source items (and only source items —
+// broad selectors like `[class*="source"]` can over-match unrelated UI). Adjust the selector
+// and/or the name-extraction logic (e.g. switch to `aria-label` if that's where the real
+// display name lives) accordingly.
+const SOURCE_ITEM_SELECTOR = [
+  '[role="listitem"]',
+  'mat-list-item',
+  '[class*="source"]',
+  '[data-testid*="source"]',
+  '[aria-label*="ソース"]',
+].join(', ')
+
+// Read the current NotebookLM source panel and return the existing source names.
+// page must already be open on a notebook (via openNotebookPage) — this does not navigate.
+// Returns [] if the source panel is empty or hasn't rendered (not an error).
+export async function listSources(page: Page): Promise<string[]> {
+  // Wait briefly for any source element to appear; if none shows up in time,
+  // treat it as "0 sources" rather than throwing.
+  await page
+    .waitForSelector(SOURCE_ITEM_SELECTOR, { timeout: 8000 })
+    .catch(() => {})
+
+  const names = await page.evaluate((selector) => {
+    return Array.from(document.querySelectorAll(selector))
+      .map(el => (el.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter(t => t.length > 0)
+  }, SOURCE_ITEM_SELECTOR)
+
+  return names
+}
