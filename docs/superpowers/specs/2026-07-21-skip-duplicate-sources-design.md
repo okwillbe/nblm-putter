@@ -62,7 +62,7 @@ Phase 2 の変更:
 4. `sourcesToAdd` が 0 件なら `addSourcesFromDrive` を呼ばず（ピッカーを開かず）、Done 表示に進む。
 5. `sourcesToAdd` が 1 件以上なら、それを `addSourcesFromDrive(page, notebookId, sourcesToAdd)` に渡す。
 
-**エラーハンドリング:** `listSources` が例外を投げた場合は、重複防止をスキップして従来どおり `newlyUploaded` 全件を追加する（重複防止は best-effort であり、sync 自体を失敗させない）。この場合は警告を表示する。
+**エラーハンドリング:** `listSources` が例外を投げた場合は、安全側に倒して sync を中断する。既存ソースを確認できない状態で追加を続けると重複を生む恐れがあるため、`newlyUploaded` の追加は行わず、エラーを表示してジョブを `failed` にして終了する（`process.exit(1)`）。Phase 1 の Drive アップロードは既に完了しているため、ユーザーは再実行すれば Drive 側はスキップされ Phase 2 のみリトライされる。
 
 ### データフロー
 
