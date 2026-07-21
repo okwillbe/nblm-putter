@@ -335,22 +335,13 @@ export async function registerFile(
   }
 }
 
-// PROVISIONAL: this selector has NOT been verified against live NotebookLM DOM
-// (session was expired at implementation time). It mirrors the same broad candidate
-// list the `debug` command dumps under "SOURCE LIST CANDIDATES" (see src/commands/debug.ts)
-// so behavior stays consistent with that investigation tool. Before relying on this in
-// production, run `pnpm dev -- debug --notebook <id>` against a notebook with existing
-// sources and confirm these candidates actually match source items (and only source items —
-// broad selectors like `[class*="source"]` can over-match unrelated UI). Adjust the selector
-// and/or the name-extraction logic (e.g. switch to `aria-label` if that's where the real
-// display name lives) accordingly.
-const SOURCE_ITEM_SELECTOR = [
-  '[role="listitem"]',
-  'mat-list-item',
-  '[class*="source"]',
-  '[data-testid*="source"]',
-  '[aria-label*="ソース"]',
-].join(', ')
+// Verified against live NotebookLM DOM (2026-07-21, `debug` command dump):
+// each source item renders a `.source-title` element whose textContent AND aria-label
+// are exactly the source's display name (== the uploaded file's basename, no truncation,
+// extension included). This class token is distinct from `.source-title-column`, so it
+// matches one element per source and nothing else. To re-verify after a UI change, run
+// `npx tsx src/index.ts debug --notebook <id>` and inspect "SOURCE LIST CANDIDATES".
+const SOURCE_ITEM_SELECTOR = '.source-title'
 
 // Read the current NotebookLM source panel and return the existing source names.
 // page must already be open on a notebook (via openNotebookPage) — this does not navigate.
