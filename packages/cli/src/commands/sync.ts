@@ -119,9 +119,12 @@ export function registerSyncCommand(program: Command): void {
           )
           await page.close()
           await ctx.close().catch(() => {})
+          await browser.close().catch(() => {})
           updateJob(jobId, { status: 'failed' })
           process.exit(1)
         }
+
+        process.stdout.write(`  ${c.dim}Found ${existingSources.length} existing source(s) in NotebookLM.${c.reset}\n`)
 
         const sourcesToAdd = filterNewSources(newlyUploaded, existingSources)
         addedCount = sourcesToAdd.length
