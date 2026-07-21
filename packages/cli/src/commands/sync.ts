@@ -1,8 +1,9 @@
 import { Command } from 'commander'
 import { resolve, basename } from 'path'
 import { launchHeadlessBrowser, createHeadlessContext } from '../playwright/browser'
-import { openNotebookPage } from '../playwright/notebooklm'
+import { openNotebookPage, listSources } from '../playwright/notebooklm'
 import { addSourcesFromDrive } from '../playwright/drive-picker'
+import { filterNewSources } from '../sync/dedup'
 import { loadIgnorePatterns } from '../storage/index'
 import { filterFiles } from '../ignore/filter'
 import { createJob, updateJob } from '../db/jobs'
@@ -98,14 +99,54 @@ export function registerSyncCommand(program: Command): void {
       }
 
       process.stdout.write(
-        `\n${c.bold}Phase 2${c.reset}  Adding ${c.cyan}${newlyUploaded.length}${c.reset} new source(s) to NotebookLM via Drive picker...\n\n`
+        `\n${c.bold}Phase 2${c.reset}  Checking existing sources & adding new source(s) to NotebookLM...\n\n`
       )
 
+      let addedCount = 0
       const browser = await launchHeadlessBrowser()
       try {
         const ctx = await createHeadlessContext(browser)
         const page = await openNotebookPage(ctx, opts.notebook)
-        await addSourcesFromDrive(page, opts.notebook, newlyUploaded)
+
+        // NotebookLM の既存ソース名を取得。取得できない場合は重複を生む恐れがあるため中断する。
+        let existingSources: string[]
+        try {
+          existingSources = await listSources(page)
+        } catch (err) {
+          process.stdout.write(
+            `  ${c.red}✗${c.reset}  既存ソース一覧の取得に失敗したため中断しました: ${err instanceof Error ? err.message : err}\n` +
+            `  ${c.dim}Drive へのアップロードは完了しています。再実行すると Phase 2 のみリトライされます。${c.reset}\n`
+          )
+          await page.close()
+          await ctx.close().catch(() => {})
+          updateJob(jobId, { status: 'failed' })
+          process.exit(1)
+        }
+
+        const sourcesToAdd = filterNewSources(newlyUploaded, existingSources)
+        addedCount = sourcesToAdd.length
+        const alreadySources = newlyUploaded.filter(n => !sourcesToAdd.includes(n))
+        for (const name of alreadySources) {
+          skipped++
+          process.stdout.write(`  ${c.yellow}SKIP${c.reset}  ${pad(name, 50)} ${c.dim}(already a source)${c.reset}\n`)
+        }
+
+        if (sourcesToAdd.length === 0) {
+          await page.close()
+          await ctx.close().catch(() => {})
+          updateJob(jobId, { status: 'done' })
+          process.stdout.write(
+            `\n${c.green}✓ Done.${c.reset}  ` +
+            `追加対象の新規ソースはありませんでした（全て既存ソース）。` +
+            `${c.dim}  skipped: ${skipped}  Job ID: ${jobId}${c.reset}\n\n`
+          )
+          return
+        }
+
+        process.stdout.write(
+          `\n  Adding ${c.cyan}${sourcesToAdd.length}${c.reset} new source(s) via Drive picker...\n\n`
+        )
+        await addSourcesFromDrive(page, opts.notebook, sourcesToAdd)
         await page.close()
         await ctx.close().catch(() => {})
       } catch (err) {
@@ -119,7 +160,7 @@ export function registerSyncCommand(program: Command): void {
       updateJob(jobId, { status: errors.length === total ? 'failed' : 'done' })
       process.stdout.write(
         `${c.green}✓ Done.${c.reset}  ` +
-        `${newlyUploaded.length} file(s) uploaded and added to NotebookLM.` +
+        `${addedCount} file(s) uploaded and added to NotebookLM.` +
         `${c.dim}  skipped: ${skipped}  Job ID: ${jobId}${c.reset}\n\n`
       )
     })
