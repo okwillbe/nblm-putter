@@ -1,12 +1,47 @@
 import { Page } from 'playwright'
 import type { FrameLocator } from 'playwright'
 import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 const PICKER_FRAME_SELECTORS = [
   'iframe[src*="drive.google.com"]',
   'iframe[src*="docs.google.com/picker"]',
   'iframe[src*="accounts.google.com"][src*="picker"]',
 ]
+
+/**
+ * 跨平台临时目录查找
+ * Windows 上可能没有 TMPDIR 环境变量，需要检查 TEMP 和 TMP
+ */
+function getDebugDir(): string {
+  const tmpDir = process.env.TMPDIR || process.env.TEMP || process.env.TMP
+  if (tmpDir) return tmpDir
+  // Windows 默认临时目录
+  if (process.platform === 'win32') {
+    return path.join(os.homedir(), 'AppData', 'Local', 'Temp')
+  }
+  return '/tmp'
+}
+
+/**
+ * 调试日志包装器 - 只在 NBLM_DEBUG=1 时输出
+ */
+function debugLog(message: string): void {
+  if (process.env.NBLM_DEBUG) {
+    console.log(`  [debug] ${message}`)
+  }
+}
+
+/**
+ * 调试截图 - 只在 NBLM_DEBUG=1 时保存
+ */
+async function debugScreenshot(page: Page, filename: string): Promise<void> {
+  if (process.env.NBLM_DEBUG) {
+    const debugDir = getDebugDir()
+    await page.screenshot({ path: `${debugDir}/${filename}`, fullPage: true }).catch(() => {})
+  }
+}
 
 // ピッカー iframe 内で「最もスクロール量の大きいスクロール可能要素」をスクロールする。
 // direction='down' で約8割ぶん下へ、'top' で先頭へ戻す。仮想化グリッドの未描画アイテム読み込み用。
@@ -99,7 +134,7 @@ export async function addSourcesFromDrive(
   notebookId: string,
   filesToAdd?: string[],
 ): Promise<{ added: string[]; missing: string[] }> {
-  const debugDir = process.env.TMPDIR ?? '/tmp'
+  const debugDir = getDebugDir()
 
   // 1. 「ソースを追加」ボタンをクリック
   await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"]')
@@ -182,12 +217,14 @@ export async function addSourcesFromDrive(
 
   // ピッカーが読み込まれるまで少し待ってからデバッグ情報を保存
   await page.waitForTimeout(2000)
-  await page.screenshot({ path: `${debugDir}/nblm-picker-opened.png`, fullPage: true }).catch(() => {})
-  const pickerHtml = await page.frames()
-    .find(f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com'))
-    ?.evaluate(() => document.documentElement.outerHTML)
-    .catch(() => '') ?? ''
-  fs.writeFileSync(`${debugDir}/nblm-picker-frame.html`, pickerHtml)
+  if (process.env.NBLM_DEBUG) {
+    await debugScreenshot(page, 'nblm-picker-opened.png')
+    const pickerHtml = await page.frames()
+      .find(f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com'))
+      ?.evaluate(() => document.documentElement.outerHTML)
+      .catch(() => '') ?? ''
+    fs.writeFileSync(`${debugDir}/nblm-picker-frame.html`, pickerHtml)
+  }
 
   // 4. 「マイドライブ」タブをクリック
   //    ピッカーは「最近使用したアイテム」タブで開くので明示的に切り替える
@@ -215,12 +252,14 @@ export async function addSourcesFromDrive(
   await page.waitForTimeout(1200)
 
   // デバッグ用スクリーンショット＆HTML ダンプ（フォルダ内容確認）
-  await page.screenshot({ path: `${debugDir}/nblm-picker-folder.png`, fullPage: true }).catch(() => {})
-  const pickerHtmlAfter = await page.frames()
-    .find(f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com'))
-    ?.evaluate(() => document.documentElement.outerHTML)
-    .catch(() => '') ?? ''
-  fs.writeFileSync(`${debugDir}/nblm-picker-folder.html`, pickerHtmlAfter)
+  if (process.env.NBLM_DEBUG) {
+    await debugScreenshot(page, 'nblm-picker-folder.png')
+    const pickerHtmlAfter = await page.frames()
+      .find(f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com'))
+      ?.evaluate(() => document.documentElement.outerHTML)
+      .catch(() => '') ?? ''
+    fs.writeFileSync(`${debugDir}/nblm-picker-folder.html`, pickerHtmlAfter)
+  }
 
   // 7. ファイルを選択
   const result: { added: string[]; missing: string[] } = { added: [], missing: [] }
@@ -297,7 +336,7 @@ export async function addSourcesFromDrive(
   }
 
   // 選択後のスクリーンショット
-  await page.screenshot({ path: `${debugDir}/nblm-picker-selected.png`, fullPage: true }).catch(() => {})
+  await debugScreenshot(page, 'nblm-picker-selected.png')
 
   // 8. 「挿入」ボタンをクリック（ファイル選択後に右下に出現）
   //    実 DOM 確認: 日本語 UI は「挿入」、英語 UI は「Insert」
