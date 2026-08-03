@@ -4,6 +4,33 @@ import { basename } from 'path'
 import { readConfig } from '../config'
 import { loadDriveToken, saveDriveToken, isTokenExpired, DriveToken } from './token'
 
+/**
+ * 设置代理环境变量，让 googleapis 底层的 HTTP 请求走代理
+ * 注意：只在函数内部显式调用，避免模块导入时的全局副作用
+ */
+function setupProxyEnv(): void {
+  const { proxy } = readConfig()
+  if (!proxy?.server) return
+
+  // 解析代理服务器地址
+  let proxyUrl = proxy.server
+  if (!proxyUrl.startsWith('http://') && !proxyUrl.startsWith('https://')) {
+    proxyUrl = `http://${proxyUrl}`
+  }
+
+  // 如果有认证信息，添加到 URL 中
+  if (proxy.username && proxy.password) {
+    const url = new URL(proxyUrl)
+    url.username = proxy.username
+    url.password = proxy.password
+    proxyUrl = url.toString()
+  }
+
+  // 设置环境变量，googleapis (gaxios) 会自动使用
+  process.env.HTTPS_PROXY = proxyUrl
+  process.env.HTTP_PROXY = proxyUrl
+}
+
 function getOAuth2Client() {
   const { drive } = readConfig()
   if (!drive.clientId || !drive.clientSecret) {
@@ -38,6 +65,7 @@ async function refreshIfNeeded(): Promise<void> {
 }
 
 export async function getOrCreateFolder(parentId: string | null, name: string): Promise<string> {
+  setupProxyEnv() // 设置代理（如果有配置）
   await refreshIfNeeded()
   const driveApi = google.drive({ version: 'v3', auth: getOAuth2Client() })
   const parentClause = parentId ? `'${parentId}' in parents` : `'root' in parents`
@@ -63,6 +91,7 @@ export async function uploadFile(
   folderId: string,
   forceOverwrite = false,
 ): Promise<UploadResult> {
+  setupProxyEnv() // 设置代理（如果有配置）
   await refreshIfNeeded()
   const driveApi = google.drive({ version: 'v3', auth: getOAuth2Client() })
   const name = basename(filePath)
