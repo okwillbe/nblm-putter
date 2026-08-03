@@ -71,8 +71,10 @@ async function waitForFilesPresent(
     await page.waitForTimeout(4000)
     // 再クエリするにはフォルダ内にいる状態から一度「マイドライブ」ルートへ戻る必要がある
     // （フォルダ内では nblm-putter タイルが見えず再入場できないため）。
+    // 日本語: マイドライブ / 英語: My Drive / 中文: 我的云端硬盘
     const myDriveTab = pickerFrame.getByRole('tab', { name: 'マイドライブ' })
       .or(pickerFrame.getByRole('tab', { name: 'My Drive' }))
+      .or(pickerFrame.getByRole('tab', { name: '我的云端硬盘' }))
       .or(pickerFrame.locator('[role="tab"][id="1"]'))
     if (await myDriveTab.first().count() > 0) {
       await myDriveTab.first().click({ timeout: 5000 }).catch(() => {})
@@ -102,7 +104,8 @@ export async function addSourcesFromDrive(
   const debugDir = process.env.TMPDIR ?? '/tmp'
 
   // 1. 「ソースを追加」ボタンをクリック
-  await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"]')
+  //    日本語: ソースを追加 / 英語: Add source / 中文: 添加来源
+  await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"], [aria-label="添加来源"]')
     .first()
     .click({ force: true, timeout: 15000 })
 
@@ -111,10 +114,13 @@ export async function addSourcesFromDrive(
   //    CSS の :has-text() は透過しない。
   //    旧コードの waitForSelector ループが偶然 24秒以上待っていたのを
   //    「ドライブ」ボタン自体の出現待ちに一本化する。
+  //    日本語: ドライブ / 英語: Drive / 中文: 云端硬盘
   const driveButton = page.getByRole('button', { name: 'ドライブ', exact: true })
     .or(page.getByRole('button', { name: 'Drive', exact: true }))
+    .or(page.getByRole('button', { name: '云端硬盘', exact: true }))
     .or(page.getByRole('menuitem', { name: 'ドライブ' }))
     .or(page.getByRole('menuitem', { name: 'Drive' }))
+    .or(page.getByRole('menuitem', { name: '云端硬盘' }))
 
   let driveClicked = false
 
@@ -130,8 +136,8 @@ export async function addSourcesFromDrive(
   // Strategy B: JS でシャドウ DOM を再帰探索してクリック
   if (!driveClicked) {
     driveClicked = await page.evaluate(() => {
-      const TARGET = ['ドライブ', 'Drive', 'Google ドライブ', 'Google Drive']
-      const EXCLUDE = ['ソースを追加', 'Add source']
+      const TARGET = ['ドライブ', 'Drive', 'Google ドライブ', 'Google Drive', '云端硬盘', 'Google 云端硬盘']
+      const EXCLUDE = ['ソースを追加', 'Add source', '添加来源']
 
       function tryClick(root: Element | ShadowRoot): boolean {
         for (const el of Array.from(root.querySelectorAll(
@@ -192,8 +198,10 @@ export async function addSourcesFromDrive(
   // 4. 「マイドライブ」タブをクリック
   //    ピッカーは「最近使用したアイテム」タブで開くので明示的に切り替える
   //    タブは role="tab"、テキスト「マイドライブ」または id="1"
+  //    日本語: マイドライブ / 英語: My Drive / 中文: 我的云端硬盘
   const myDriveTab = pickerFrame.getByRole('tab', { name: 'マイドライブ' })
     .or(pickerFrame.getByRole('tab', { name: 'My Drive' }))
+    .or(pickerFrame.getByRole('tab', { name: '我的云端硬盘' }))
     .or(pickerFrame.locator('[role="tab"][id="1"]'))
   const myDriveTabVisible = await myDriveTab.first().isVisible({ timeout: 3000 }).catch(() => false)
   if (myDriveTabVisible) {

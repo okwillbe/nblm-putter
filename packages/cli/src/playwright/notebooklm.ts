@@ -20,7 +20,8 @@ async function dismissOverlays(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (await backdrop.count() === 0) return
 
-    const closeBtn = page.locator('[aria-label="バナーを閉じる"], [aria-label="閉じる"]').first()
+    // 日本語/英語/中文の閉じるボタン
+    const closeBtn = page.locator('[aria-label="バナーを閉じる"], [aria-label="閉じる"], [aria-label="关闭横幅"], [aria-label="关闭"]').first()
     if (await closeBtn.count() > 0) {
       await closeBtn.click({ force: true }).catch(() => {})
     } else {
@@ -40,12 +41,14 @@ async function dismissOverlays(page: Page): Promise<void> {
   }
 }
 
-const BUTTON_SELECTOR = '[aria-label="ソースを追加"]'
+// 日本語/英語/中文の「ソースを追加」ボタン
+const BUTTON_SELECTOR = '[aria-label="ソースを追加"], [aria-label="Add source"], [aria-label="添加来源"]'
 
 // Try to open the add-source dialog by clicking the button, regardless of disabled state.
 // Returns true if the "ファイルをアップロード" button appeared (dialog opened).
 async function tryClickAddSource(page: Page): Promise<boolean> {
-  const uploadBtn = page.locator('button:has-text("ファイルをアップロード")')
+  // 日本語: ファイルをアップロード / 英語: Upload file / 中文: 上传文件
+  const uploadBtn = page.locator('button:has-text("ファイルをアップロード"), button:has-text("Upload file"), button:has-text("上传文件")')
   if (await uploadBtn.count() > 0) return true
 
   // force: true bypasses Playwright's enabled check and pointer-events: none CSS.
@@ -290,7 +293,8 @@ export async function uploadFileOnPage(
     onPhase?.({ phase: 'uploading', buttonWaitMs })
     const t1 = Date.now()
 
-    const uploadBtn = page.locator('button:has-text("ファイルをアップロード")')
+    // 日本語: ファイルをアップロード / 英語: Upload file / 中文: 上传文件
+    const uploadBtn = page.locator('button:has-text("ファイルをアップロード"), button:has-text("Upload file"), button:has-text("上传文件")')
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser', { timeout: 15000 }),
       uploadBtn.first().click(),
