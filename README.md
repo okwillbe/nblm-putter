@@ -1,5 +1,7 @@
 # nblm-putter
 
+日本語 | [简体中文](./README_CN.md)
+
 ローカルフォルダのファイルを [NotebookLM](https://notebooklm.google.com) へ再帰的に自動登録する CLI ツール。ローカル Web UI も付属。
 
 ---

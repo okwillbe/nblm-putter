@@ -1,4 +1,5 @@
 import { BrowserContext, Page } from 'playwright'
+import * as os from 'os'
 
 const NOTEBOOKLM_URL = 'https://notebooklm.google.com'
 
@@ -146,9 +147,15 @@ export async function createNotebook(context: BrowserContext): Promise<Notebook>
       'button:has-text("New notebook")',
       'button:has-text("新規ノートブック")',
       'button:has-text("ノートブックを作成")',
+      'button:has-text("新建")',            // current Chinese UI: "+ 新建" / "新建笔记本"
+      'button:has-text("新建笔记本")',
+      'button:has-text("创建笔记本")',
       '[aria-label="新規作成"]',
       '[aria-label="新しいノートブック"]',
       '[aria-label="New notebook"]',
+      '[aria-label="新建"]',
+      '[aria-label="新建笔记本"]',
+      '[aria-label="创建笔记本"]',
     ]
     let clicked = false
     for (const sel of CANDIDATE_SELECTORS) {
@@ -204,7 +211,7 @@ export async function createNotebook(context: BrowserContext): Promise<Notebook>
 
     // Attempt 2: JS-click the first non-cancel button inside any dialog
     await page.evaluate(() => {
-      const CANCEL_LABELS = ['キャンセル', 'Cancel', '閉じる', 'Close']
+      const CANCEL_LABELS = ['キャンセル', 'Cancel', '閉じる', 'Close', '取消', '关闭']
       const btn = Array.from(
         document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button, mat-dialog-container button')
       ).find(b => {
@@ -220,7 +227,8 @@ export async function createNotebook(context: BrowserContext): Promise<Notebook>
     }
 
     // Last resort: save screenshot and throw with full context
-    const screenshotPath = '/tmp/nblm-create-notebook-debug.png'
+    const debugDir = process.env.TMPDIR ?? os.tmpdir()
+    const screenshotPath = `${debugDir}/nblm-create-notebook-debug.png`
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {})
     throw new Error(
       `createNotebook: page did not navigate after button click.\n` +

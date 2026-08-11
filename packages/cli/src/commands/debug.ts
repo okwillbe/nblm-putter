@@ -42,7 +42,9 @@ export function registerDebugCommand(program: Command): void {
           console.log('\n=== DISMISSING CDK OVERLAY ===')
           for (let attempt = 0; attempt < 3; attempt++) {
             if (await backdrop.count() === 0) break
-            const closeBtn = page.locator('[aria-label="バナーを閉じる"], [aria-label="閉じる"]').first()
+            const closeBtn = page.locator(
+              '[aria-label="バナーを閉じる"], [aria-label="閉じる"], [aria-label="Close banner"], [aria-label="Close"], [aria-label="关闭横幅"], [aria-label="关闭"]'
+            ).first()
             if (await closeBtn.count() > 0) {
               await closeBtn.click({ force: true }).catch(() => {})
               console.log(`  Attempt ${attempt + 1}: clicked close button`)
@@ -72,7 +74,7 @@ export function registerDebugCommand(program: Command): void {
           .then(fc => { fileChooserOpened = true; fc.setFiles([]); return fc })
           .catch(() => null)
 
-        await page.locator('[aria-label="ソースを追加"]').click()
+        await page.locator('[aria-label="ソースを追加"], [aria-label="Add source"], [aria-label="添加来源"]').first().click()
         await chooserPromise
 
         if (fileChooserOpened) {
@@ -152,7 +154,9 @@ export function registerDebugCommand(program: Command): void {
                 'mat-list-item',
                 '[class*="source"]',
                 '[data-testid*="source"]',
-                '[aria-label*="ソース"]',
+                '[aria-label*="ソース"]',  // ja
+                '[aria-label*="来源"]',    // zh
+                '[aria-label*="Source"]',  // en
               ].join(', ')
             )
           )

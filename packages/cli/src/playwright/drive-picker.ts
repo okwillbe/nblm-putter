@@ -268,7 +268,9 @@ export async function addSourcesFromDrive(
     }
   } else {
     // filesToAdd 未指定時はフォルダ内全件を Shift+クリックで選択
-    const fileItems = pickerFrame.locator('[aria-label*="選択されていません"]')
+    const fileItems = pickerFrame.locator(
+      '[aria-label*="選択されていません"], [aria-label*="Not selected"], [aria-label*="not selected"], [aria-label*="未选择"], [aria-label*="未选中"]'
+    )
     const fileCount = await fileItems.count().catch(() => 0)
     if (fileCount > 0) {
       await fileItems.first().click({ timeout: 5000 })
@@ -279,15 +281,19 @@ export async function addSourcesFromDrive(
   }
   await page.waitForTimeout(800)
 
-  // 挿入前にピッカーの選択数（「N 件選択しました」）を読み取り、想定選択数と照合する。
+  // 挿入前にピッカーの選択数を読み取り、想定選択数と照合する。
   // click() が例外を投げなくても実際には選択できていない場合の検出用バックストップ。
+  // 日本語: N 件選択 / 中文: 已选择 N 项 / 英語: N selected
   if (filesToAdd && filesToAdd.length > 0) {
     const frame = page.frames().find(
       f => f.url().includes('docs.google.com') || f.url().includes('drive.google.com')
     )
     const picked = frame
       ? await frame.evaluate(() => {
-          const m = document.body.innerText.match(/(\d+)\s*件選択/)
+          const text = document.body.innerText
+          const m = text.match(/(\d+)\s*件選択/)        // ja: N 件選択
+            || text.match(/已选[择取]?\s*(\d+)\s*项/)   // zh: 已选择 N 项
+            || text.match(/(\d+)\s*selected/i)          // en: N selected
           return m ? Number(m[1]) : null
         }).catch(() => null)
       : null
@@ -308,12 +314,14 @@ export async function addSourcesFromDrive(
   await page.screenshot({ path: `${debugDir}/nblm-picker-selected.png`, fullPage: true }).catch(() => {})
 
   // 8. 「挿入」ボタンをクリック（ファイル選択後に右下に出現）
-  //    実 DOM 確認: 日本語 UI は「挿入」、英語 UI は「Insert」
+  //    実 DOM 確認: 日本語 UI は「挿入」、英語 UI は「Insert」、中文 UI は「插入」
   const insertBtn = pickerFrame.getByRole('button', { name: '挿入' })
     .or(pickerFrame.getByRole('button', { name: 'Insert' }))
+    .or(pickerFrame.getByRole('button', { name: '插入' }))
     .or(pickerFrame.locator('[jsname="d1dBrd"]'))
     .or(pickerFrame.locator('[aria-label="挿入"]'))
     .or(pickerFrame.locator('[aria-label="Insert"]'))
+    .or(pickerFrame.locator('[aria-label="插入"]'))
   await insertBtn.first().waitFor({ state: 'visible', timeout: 8000 })
   await insertBtn.first().click({ timeout: 5000 })
 

@@ -1,5 +1,7 @@
 # nblm-putter
 
+[日本語](./README.md) | 简体中文
+
 将本地文件夹中的文件递归自动注册到 [NotebookLM](https://notebooklm.google.com) 的 CLI 工具。附带本地 Web UI。
 
 ---
